@@ -65,6 +65,8 @@ local_settings.py
 db.sqlite3
 db.sqlite3-journal
 
+!2025-04-*.log
+
 # Flask stuff:
 instance/
 .webassets-cache

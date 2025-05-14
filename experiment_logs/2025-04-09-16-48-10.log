@@ -1,0 +1,9 @@
+2025-04-09 16:48:10,153 - __main__ - INFO - Experiment >> esd baseline 25 25 as before
+2025-04-09 16:48:10,153 - __main__ - INFO - Using calibration data from data\calibration\calibration-2022-10-27-11-15-10.csv: [2.06619852 3.01926652 2.5291416  5.89547766 2.71889242 6.1655897
+ 6.49153527 7.83684643]
+2025-04-09 16:48:12,507 - __main__ - INFO - Initializing oscilloscope to known state
+2025-04-09 16:48:46,415 - __main__ - INFO - Rieving waveforms
+2025-04-09 16:48:47,434 - __main__ - INFO - Oscilloscope answer: 1
+2025-04-09 16:49:16,526 - __main__ - INFO - Oscilloscope data: ['data\\oscilloscope\\C1--Trace--04527.txt', 'data\\oscilloscope\\C2--Trace--03458.txt', 'data\\oscilloscope\\C3--Trace--03179.txt', 'data\\oscilloscope\\C4--Trace--03163.txt', 'data\\oscilloscope\\C5--Trace--02679.txt', 'data\\oscilloscope\\C6--Trace--02665.txt', 'data\\oscilloscope\\C7--Trace--02648.txt', 'data\\oscilloscope\\C8--Trace--02638.txt']
+2025-04-09 16:49:17,964 - __main__ - INFO - Experiment number: 4527
+2025-04-09 16:49:17,966 - __main__ - INFO - Disconnecting from VISA interface

@@ -1,0 +1,9 @@
+2025-04-09 16:27:26,617 - __main__ - INFO - Experiment >> esd rmlv5 25 25 esd sim shielded
+2025-04-09 16:27:26,618 - __main__ - INFO - Using calibration data from data\calibration\calibration-2022-10-27-11-15-10.csv: [2.06619852 3.01926652 2.5291416  5.89547766 2.71889242 6.1655897
+ 6.49153527 7.83684643]
+2025-04-09 16:27:28,811 - __main__ - INFO - Initializing oscilloscope to known state
+2025-04-09 16:27:56,978 - __main__ - INFO - Rieving waveforms
+2025-04-09 16:27:57,986 - __main__ - INFO - Oscilloscope answer: 1
+2025-04-09 16:28:27,609 - __main__ - INFO - Oscilloscope data: ['data\\oscilloscope\\C1--Trace--04525.txt', 'data\\oscilloscope\\C2--Trace--03456.txt', 'data\\oscilloscope\\C3--Trace--03177.txt', 'data\\oscilloscope\\C4--Trace--03161.txt', 'data\\oscilloscope\\C5--Trace--02677.txt', 'data\\oscilloscope\\C6--Trace--02663.txt', 'data\\oscilloscope\\C7--Trace--02646.txt', 'data\\oscilloscope\\C8--Trace--02636.txt']
+2025-04-09 16:28:29,123 - __main__ - INFO - Experiment number: 4525
+2025-04-09 16:28:29,124 - __main__ - INFO - Disconnecting from VISA interface
