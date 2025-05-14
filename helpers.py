@@ -195,14 +195,14 @@ def search_for_filenames(exp_number: int) -> list[str, ...]:
     :param exp_number: The C1 experiment number to look for.
     :return: A list with the found filenames.
     """
-    log_files = os.listdir("logs")
+    log_files = os.listdir("experiment_logs")
     log_files.sort(reverse=True)
     for filename in log_files:
         try:
-            with open(os.path.join("logs", filename), "r") as fd:
+            with open(os.path.join("experiment_logs", filename), "r") as fd:
                 text = " ".join(fd.readlines())
         except UnicodeDecodeError:
-            with open(os.path.join("logs", filename), "r", encoding="latin1") as fd:
+            with open(os.path.join("experiment_logs", filename), "r", encoding="latin1") as fd:
                 text = " ".join(fd.readlines())
         expression = f"Experiment number: {exp_number}"
         if expression in text:

@@ -8,6 +8,8 @@ from scipy.interpolate import RegularGridInterpolator, interp1d
 from emtr_fd import esd_waveform
 import random
 from joblib import Parallel, delayed
+from tqdm import tqdm
+import matplotlib.animation as animation
 
 
 if __name__ == "__main__":
@@ -204,17 +206,9 @@ def read_data(filename, fun_logger=None):
     return xs, ys, f, data
 
 
-
-def read_data_from_td(exp_number, delay=0., example_plot=False):
+def read_data_from_td(exp_number, example_plot=False):
     filenames = search_for_filenames(exp_number)
     data = read_local_data(filenames=filenames)
-    # data.channels[:, data.time > 10e-9] = 0.
-    # delay = 2 / 3e8 + 3 * 10e-12
-    # print(delay)
-    # delay = 8e-9
-    if delay > 1e-18:
-        data.channels = interp1d(data.time, data.channels, axis=-1, fill_value=0., bounds_error=False)(data.time - delay)
-    # plt.plot(data.time, y)
     if example_plot:
         plt.plot(data.time * 1e6, data.channels[0, :] * 1e3, "k-")
         plt.xlim(-.3, 1.5)
@@ -223,15 +217,8 @@ def read_data_from_td(exp_number, delay=0., example_plot=False):
         plt.title("Example time-domain data")
         plt.tight_layout()
         plt.show()
-    # tfs, f = get_transfer_function(data.time, y, data.channels[:8, :])
-    # logger.info(f"{tfs.shape=}")
     data.do_fft()
-    # data._fft = data._fft * np.exp(1j * 2 * np.pi * data.freq * 8e-9)[None, :]
-
-    # plt.semilogy(data.freq, np.abs(data.fft[0, :]))
-    # plt.show()
-    return data.freq, data.fft  # [:8, :]
-    # return f, tfs
+    return data.freq, data.fft
 
 
 def postprocessing(filename, filename_test=None, with_singularities=False, threshold=12, simulate_less=None,
@@ -240,9 +227,6 @@ def postprocessing(filename, filename_test=None, with_singularities=False, thres
                    excite_gaussian=True, **fom_kwargs):
     """s_ij.shape: (x, y, rx, f)"""
 
-    # if do_montena_plots:
-    #     if "esd" not in save or "trace" not in save:
-    #         return
     xs, ys, f, data = read_data(filename, fun_logger=logger)
     experimental_mismatch = filename_test is not None
     data_test, esd_waveform_fd = None, None
@@ -251,13 +235,11 @@ def postprocessing(filename, filename_test=None, with_singularities=False, thres
         ind_s11, ind_s22, ind_s12, ind_s21 = 0, 1, 2, 3
         ind_s33, ind_s44 = None, None
         ind_s23, ind_s24 = None, None
-        ind_s32, ind_s42 = None, None
         ind_s13, ind_s14 = None, None
     else:
         ind_s11, ind_s22, ind_s12, ind_s21 = 0, 5, 1, 4
         ind_s33, ind_s44 = 10, 15
         ind_s23, ind_s24 = 6, 7
-        ind_s32, ind_s42 = 9, 13
         ind_s13, ind_s14 = 2, 3
     if filename_test is not None:
         case = "mismatch"
@@ -280,7 +262,7 @@ def postprocessing(filename, filename_test=None, with_singularities=False, thres
     elif case == "td":
         s11, s22 = data[:, :, :, ind_s11, :], data[:, :, :, ind_s22, :]
         s12, s21 = data[:, :, :, ind_s12, :], data[:, :, :, ind_s21, :]
-        f_tf, tfs = read_data_from_td(td_exp_num, delay=delay, example_plot=do_montena_plots)
+        f_tf, tfs = read_data_from_td(td_exp_num, example_plot=do_montena_plots)
         assert tfs.shape[0] > 1
 
         s21_save_if_td = s21.copy()
@@ -321,55 +303,8 @@ def postprocessing(filename, filename_test=None, with_singularities=False, thres
 
     true_delays, f_corrupt = None, None
 
-    if simulate_less is None:
-        pass
-    elif simulate_less == "two sums":
-        s12, s21 = simulate_two_sums(s12), simulate_two_sums(s21)
-    elif simulate_less == "one":
-        s12, s21 = only_two(s12), only_two(s21)
-    elif simulate_less == "corrupt phase":
-        f_corrupt = 3e9
-        s21, true_delays = corrupt_phase(f, f_corrupt, s21)
-    else:
-        raise ValueError(f"Unknown 'simulate_less' value: `{simulate_less}`")
-
-    singularities = None
-    if with_singularities:
-        singularities = find_singularities(f, xs, ys, s21, threshold=threshold)
-
-        found_f = [s["f"]/1e6 for s in singularities]
-        plt.figure()
-        plt.hist(found_f, bins=100)
-
-        plt.ion()
-
     f1 = f1 if f1 is not None else np.min(f)
     f2 = f2 if f2 is not None else np.max(f)
-
-    if ml == "ga":
-        kwargs = dict(
-            seed=0,
-            pop_size=50,  # 100
-            n_gen=400,
-            cx_prob=.85,
-            mut_prob=0.1,  # 0.05
-            elite_size=3,  # 5
-            cluster_size=1,
-            snr=0,
-            l1=0.,
-            n_features=20,
-            n_evaluate=23,
-            n_cores=-1,
-            mut_decay=200,
-        )
-        s12, s21_modified, mask, history, hash_key = cache_function_call(
-            select_frequencies_ga, f, s12,
-            s21_save_if_td if td_exp_num is not None or filename_test is not None else s21,
-            return_hash=True,
-            **kwargs
-        )
-        if td_exp_num is None and filename_test is None:
-            s21 = s21_modified
 
     if ml == "brute_force":
         kwargs = dict(
@@ -398,7 +333,7 @@ def postprocessing(filename, filename_test=None, with_singularities=False, thres
     if do_montena_plots:
         montena_plots(f, s12)
 
-    plot_resolution(f, xs, ys, s11, s11_dut, s12, s21, s22, s22_dut, f1, f2, singularities=singularities,
+    plot_resolution(f, xs, ys, s11, s11_dut, s12, s21, s22, s22_dut, f1, f2,
                     true_delays=true_delays, f_corrupt=f_corrupt, experimental_mismatch=experimental_mismatch,
                     learn_s11=learn_s11, excite_gaussian=excite_gaussian, _esd_waveform_fd=esd_waveform_fd,
                     x0=x0, y0=y0,
@@ -422,6 +357,9 @@ def plot_resolution(f, xs, ys, s11, s11_dut, s12, s21, s22, s22_dut, f1, f2, sin
                     experimental_mismatch=False, learn_s11=None, excite_gaussian=True, _esd_waveform_fd=None,
                     plot_filename=None, x0=None, y0=None, manual_max=1., block_plot=False, auto_close=False,
                     **fom_kwargs):
+
+    fom_kwargs.setdefault("animation_title", None)
+
     plt.figure(figsize=(10, 9))
     n_row, n_col = 2, 2
 
@@ -438,17 +376,10 @@ def plot_resolution(f, xs, ys, s11, s11_dut, s12, s21, s22, s22_dut, f1, f2, sin
     removed_channels = set()
     fom_title = f"FOM, {plot_filename}"
 
-    def plot_at(do_optimization=False):
+    def plot_at():
         nonlocal x0, y0, recovered_phases, ind_t, xs_dense, ys_dense
         plt.clf()
-
-        if do_optimization:
-            s12_corr, s21_corr, recovered_phases = recover_phases(f, f1, f2, s12, s21, true_delays, f_corrupt)
-        else:
-            if recovered_phases is None:
-                s12_corr, s21_corr = s12.copy(), s21.copy()
-            else:
-                s12_corr, s21_corr = correct(f, s12, s21, recovered_phases)
+        s12_corr, s21_corr = s12.copy(), s21.copy()
         factor = (f1 + f2) / 2 / 3e11 * 1e2
 
         xs_wavelengths, ys_wavelengths = xs_dense * factor, ys_dense * factor
@@ -463,40 +394,31 @@ def plot_resolution(f, xs, ys, s11, s11_dut, s12, s21, s22, s22_dut, f1, f2, sin
             s12_corr[:, :, channel - 1, ...] = 0.
             s21_corr[:, :, channel - 1, ...] = 0.
 
-        if singularities is None:
-            if excite_gaussian:
-                excitation_signal = get_gaussian_fd(f1, f2, f)
-            elif _esd_waveform_fd is not None:
-                excitation_signal = _esd_waveform_fd * get_gaussian_fd(f1, f2, f)
-            else:
-                excitation_signal = (f >= f1) * (f <= f2)
-
-            fom, ratio = get_fom(
-                f, s11, s11_dut, s12_corr, s21_corr, s22, s22_dut, ind_x, ind_y, f1, f2, _ind_t=ind_t,
-                _experimental_mismatch=experimental_mismatch, _learn_s11=learn_s11,
-                excitation_signal=excitation_signal, xs=xs, ys=ys, animation_title=plot_filename, **fom_kwargs
-            )
-            try:
-                fom_inter = RegularGridInterpolator((xs, ys), fom, method="cubic")(dense_list_of_points)
-            except ValueError:
-                fom_inter = fom
-                xs_dense, ys_dense = xs, ys
-                xs_wavelengths, ys_wavelengths = xs_dense * factor, ys_dense * factor
-            fom_inter = fom_inter.reshape((xs_dense.size, ys_dense.size))
-            # fom_inter -= np.min(fom_inter)
-            # warnings.warn("Min-normalization")
-            # fom_inter = fom_inter / np.max(fom_inter)
-            fom_inter[fom_inter < 0.] = 0.
-            found = None
+        if excite_gaussian:
+            excitation_signal = get_gaussian_fd(f1, f2, f)
+        elif _esd_waveform_fd is not None:
+            excitation_signal = _esd_waveform_fd * get_gaussian_fd(f1, f2, f)
         else:
-            fom_inter = None
-            fom, found = get_fom_sing(singularities, s12_corr, s21_corr, ind_x, ind_y, f1, f2)
+            excitation_signal = (f >= f1) * (f <= f2)
+
+        fom, ratio = get_fom(
+            f, s11, s11_dut, s12_corr, s21_corr, s22, s22_dut, ind_x, ind_y, f1, f2, _ind_t=ind_t,
+            _experimental_mismatch=experimental_mismatch, _learn_s11=learn_s11,
+            excitation_signal=excitation_signal, xs=xs, ys=ys, **fom_kwargs
+        )
+        try:
+            fom_inter = RegularGridInterpolator((xs, ys), fom, method="cubic")(dense_list_of_points)
+        except ValueError:
+            fom_inter = fom
+            xs_dense, ys_dense = xs, ys
+            xs_wavelengths, ys_wavelengths = xs_dense * factor, ys_dense * factor
+        fom_inter = fom_inter.reshape((xs_dense.size, ys_dense.size))
+        fom_inter[fom_inter < 0.] = 0.
 
         fom_inter_clipped = np.clip(fom_inter, 0, manual_max)
 
         plt.subplot(n_row, n_col, 2)
         m = manual_max
-        # plt.contourf(xs, ys, fom.T, cmap="jet", levels=np.linspace(0, 1, 11))
         plt.contourf(xs_dense, ys_dense, fom_inter_clipped.T, cmap="jet", levels=np.linspace(0, m, 21))
         plt.colorbar(ticks=np.arange(0, 1.1, .25))
         plt.contour(xs, ys, fom.T, levels=(.5, ))
@@ -515,7 +437,7 @@ def plot_resolution(f, xs, ys, s11, s11_dut, s12, s21, s22, s22_dut, f1, f2, sin
         try:
             full_width_half_max, x_inter, interpolated = fwhm(xs_wavelengths, fom_inter[:, ind_y_dense])
             plt.title(f"FWHM = λ / {100 / full_width_half_max:.2f}")
-            # plt.plot(x_inter / factor, interpolated)
+
         except NoFwhm:
             pass
         plt.xlabel("x (mm)")
@@ -536,25 +458,18 @@ def plot_resolution(f, xs, ys, s11, s11_dut, s12, s21, s22, s22_dut, f1, f2, sin
         plt.subplot(n_row, n_col, 3)
         trm_slice = slice(None)
         to_plot = np.abs(s12[ind_x, ind_y, trm_slice, :].reshape(-1, f.size)).T
-        # to_plot /= np.max(to_plot)
+
         plt.semilogy(f, to_plot, "-")
-        # to_plot = np.abs(s12[ind_x, ind_y, trm_slice, :].reshape(-1, f.size)).T
-        # to_plot /= np.max(to_plot)
-        # plt.plot(f, to_plot, "--")
+
         plt.text(
             f1 + .15 * (f2 - f2),
             np.max(np.abs(to_plot)) * .95,
             f"f1 = {f1/1e9:.3f} GHz, f2 = {f2/1e9:.3f} GHz"
         )
-        # plt.plot(f, np.mean(var, axis=0))
+
         plt.xlim(f1, f2)
         plt.title("Scattering parameters")
         plt.xlabel("Frequency (Hz)")
-
-        # plt.subplot(2, 3, 3)
-        # if ratio is not None:
-        #     plt.contourf(xs, ys, ratio.T, cmap="jet", levels=21)
-        #     plt.colorbar()
 
         plt.tight_layout()
         plt.gcf().canvas.draw_idle()
@@ -644,7 +559,7 @@ def plot_resolution(f, xs, ys, s11, s11_dut, s12, s21, s22, s22_dut, f1, f2, sin
             res = input("f2 (MHz): ")
             f2 = int(res) * 1e6
 
-        plot_at(do_optimization=do_optimization)
+        plot_at()
 
     plt.connect('button_press_event', on_click)
     plt.connect("key_press_event", on_key_press)
@@ -706,61 +621,48 @@ def get_fom(f,
             tr_td = tr_td / calibration[:, :, None]
         m = np.max(np.abs(tr_td))
         ind_max = np.argmax(np.max(np.abs(tr_td), axis=(0, 1, 2)), axis=-1)
-        print(f"{t[ind_max]=}")
-        fig, ax = plt.subplots()
-        cax = None
-        levels = np.linspace(-1, 1, 51)
-        n_indices = int(animation_length_ns * 1e-9 / dt)
-        indices = range(ind_max - n_indices // 2, ind_max + n_indices // 2)
-        print(f"Number of frames: {len(indices)}")
-        # if animation_title is None:
-        #     save_path = "figs/tr_animation.mp4"
-        # else:
-        #     save_path = f"figs/tr_animation_{animation_title}.mp4"
-        #
-        # writer = animation.FFMpegWriter(fps=30)
-        # with writer.saving(fig, save_path, dpi=120):
-        #     for ind_t in tqdm(indices, desc="Rendering frames"):
-        #         ax.clear()
-        #         if xs is not None:
-        #             args = xs, ys, tr_td[0, :, :, ind_t].T / m
-        #         else:
-        #             args = (tr_td[0, :, :, ind_t].T / m, )
-        #         cf = ax.contourf(*args, levels=levels, cmap="bwr")
-        #         t_i = t[ind_t]
-        #         if ind_t < 0:
-        #             t_i -= np.max(t)
-        #         if ind_t == ind_max:
-        #             marker = "*"
-        #         else:
-        #             marker = ""
-        #         ax.set_title(f"t = {t_i * 1e9:.04f} ns {marker}")
-        #         ax.set_xlabel("x (mm)")
-        #         ax.set_ylabel("y (mm)")
-        #         if cax is not None:
-        #             cax.remove()
-        #         cax = fig.colorbar(cf, ax=ax)
-        #         plt.tight_layout()
-        #         writer.grab_frame()
-        # plt.close(fig)
+        logger.info(f"{t[ind_max]=}")
+        if animation_title is not None:
+            fig, ax = plt.subplots()
+            cax = None
+            levels = np.linspace(-1, 1, 51)
+            n_indices = int(animation_length_ns * 1e-9 / dt)
+            indices = range(ind_max - n_indices // 2, ind_max + n_indices // 2)
+            logger.info(f"Number of frames: {len(indices)}")
+            save_path = f"figs/tr_animation_{animation_title}.mp4"
+            writer = animation.FFMpegWriter(fps=30)
+            with writer.saving(fig, save_path, dpi=120):
+                for ind_t in tqdm(indices, desc="Rendering frames"):
+                    ax.clear()
+                    if xs is not None:
+                        args = xs, ys, tr_td[0, :, :, ind_t].T / m
+                    else:
+                        args = (tr_td[0, :, :, ind_t].T / m, )
+                    cf = ax.contourf(*args, levels=levels, cmap="bwr")
+                    t_i = t[ind_t]
+                    if ind_t < 0:
+                        t_i -= np.max(t)
+                    if ind_t == ind_max:
+                        marker = "*"
+                    else:
+                        marker = ""
+                    ax.set_title(f"t = {t_i * 1e9:.04f} ns {marker}")
+                    ax.set_xlabel("x (mm)")
+                    ax.set_ylabel("y (mm)")
+                    if cax is None:
+                        cax = fig.colorbar(cf, ax=ax)
+                        cax.set_ticks([xi / 10 for xi in range(-10, 11, 2)])
+                    plt.tight_layout()
+                    writer.grab_frame()
+            plt.close(fig)
 
         ind_max = np.argmax(np.max(np.abs(tr_td), axis=(0, 1, 2)))
         fom = np.sum(tr_td[..., ind_max]**2, axis=0) ** .5  # / calibration
-    elif not tr_music:
+    else:
         if calibrate:
             fom = np.sum(np.abs(tr) ** 2, axis=(0, -1)) ** .5 / calibration
         else:
             fom = np.sum(np.abs(tr) ** 2, axis=(0, -1)) ** .5
-    else:
-        # TR music
-        fom = do_tr_music(f, trm_measurement[0, 0, 0, ...], s12[0, ...])
-        if calibrate:
-            calibration[:] = 0.
-            for i in range(calibration.shape[0]):
-                for j in range(calibration.shape[1]):
-                    print(i, j)
-                    calibration[i, j] = do_tr_music(f, s12[0, i, j, ...], s12[0, ...])[i, j]
-            fom = fom / calibration
 
     if min_normalization:
         fom -= np.min(fom)
@@ -786,18 +688,23 @@ def postprocessing_fourth_campaign():
         time_domain=False,
         animation_length_ns=1
     )
-    kwargs = dict(  # f1=0, f2=13e9,
+    kwargs = dict(
         excite_gaussian=True,
-        ml=False,
-        # f1=1.4e9, f2=2e9,
-        # f1=2.5e9
         f1=.35e9,
         f2=1.8e9,
     )
+
     # In general: ESD = 2 kV, shielded
 
+    # Animation
+    fom_kwargs["time_domain"] = True
+    fom_kwargs["animation_title"] = "dut_rmlv5_bundled_esd_y1_for_td"
+    postprocessing("zingrf_rs-2025-04-15-14-44-55_dut_rmlv5",
+                   td_exp_num=4542,
+                   **kwargs, **fom_kwargs)
+    fom_kwargs["time_domain"] = False
+
     # DUT, RMLv3, cables bundled in a shield
-    # postprocessing("zingrf_rs-2025-04-17-11-53-33_dut_rmlv3", **kwargs, **fom_kwargs)
     # Synth
     postprocessing("zingrf_rs-2025-04-17-11-53-33_dut_rmlv3",
                    filename_test="zingrf_rs-2025-04-17-13-36-25_dut_rmlv3_y1",
@@ -808,7 +715,6 @@ def postprocessing_fourth_campaign():
                    save="dut_rmlv3_bundled_synth_y2",
                    **kwargs, **fom_kwargs)
 
-    # plt.show(block=True)
     # ESD
     postprocessing("zingrf_rs-2025-04-17-11-53-33_dut_rmlv3", td_exp_num=4552,
                    save="dut_rmlv3_bundled_esd_y1",
@@ -816,13 +722,11 @@ def postprocessing_fourth_campaign():
     postprocessing("zingrf_rs-2025-04-17-11-53-33_dut_rmlv3", td_exp_num=4551,
                    save="dut_rmlv3_bundled_esd_y2",
                    **kwargs, **fom_kwargs)
-    # plt.show(block=True)
 
     # DUT, cables bundled in a shield
     kwargs["f1"] = .2e9
     kwargs["f2"] = 2e9
     # Synth
-    # postprocessing("zingrf_rs-2025-04-15-11-23-41_dut_baseline", **kwargs, **fom_kwargs)
     postprocessing("zingrf_rs-2025-04-15-11-23-41_dut_baseline",
                    save="dut_baseline_bundle_synth_y1",
                    filename_test="zingrf_rs-2025-04-15-13-10-14_dut_baseline_y1",
@@ -842,7 +746,6 @@ def postprocessing_fourth_campaign():
                    **kwargs, **fom_kwargs)
 
     # DUT + RMLv5, cables bundled in a shield
-    # postprocessing("zingrf_rs-2025-04-15-14-44-55_dut_rmlv5", **kwargs, **fom_kwargs)
     # Synth
     postprocessing("zingrf_rs-2025-04-15-14-44-55_dut_rmlv5",
                    filename_test="zingrf_rs-2025-04-15-16-05-47_dut_rmlv5_y1",
@@ -862,59 +765,6 @@ def postprocessing_fourth_campaign():
                    save="dut_rmlv5_bundled_esd_y2",
                    td_exp_num=4541,
                    **kwargs, **fom_kwargs)
-    # plt.show(block=True)
-
-    kwargs["f1"] = 0
-    kwargs["f2"] = 3e9
-    # DUT
-    # postprocessing("zingrf_rs-2025-04-11-10-20-33_dut_baseline", **kwargs, **fom_kwargs)
-    # Synth, original
-    postprocessing("zingrf_rs-2025-04-11-10-20-33_dut_baseline",
-                   save="dut_baseline_synth_y1",
-                   filename_test="zingrf_rs-2025-04-11-11-54-57_dut_baseline_y1", **kwargs, **fom_kwargs)
-    postprocessing("zingrf_rs-2025-04-11-10-20-33_dut_baseline",
-                   save="dut_baseline_synth_y2",
-                   filename_test="zingrf_rs-2025-04-11-11-58-00_dut_baseline_y2", **kwargs, **fom_kwargs)
-    # Synth, switched cable
-    # postprocessing("zingrf_rs-2025-04-15-09-14-38_dut_baseline_switched",
-    #                save="dut_baseline_synth_y1_switched",
-    #                filename_test="zingrf_rs-2025-04-14-16-33-14_dut_baseline_y1_switched", **kwargs, **fom_kwargs)
-    # postprocessing("zingrf_rs-2025-04-15-09-14-38_dut_baseline_switched",
-    #                save="dut_baseline_synth_y2_switched",
-    #                filename_test="zingrf_rs-2025-04-14-16-30-40_dut_baseline_y2_switched", **kwargs, **fom_kwargs)
-
-    # ESD, original
-    postprocessing("zingrf_rs-2025-04-11-10-20-33_dut_baseline", td_exp_num=4534,
-                   save="dut_baseline_esd_y1",
-                   **kwargs, **fom_kwargs)
-    postprocessing("zingrf_rs-2025-04-11-10-20-33_dut_baseline",
-                   save="dut_baseline_esd_y2",
-                   td_exp_num=4533, **kwargs, **fom_kwargs)
-    # ESD, switched
-    # postprocessing("zingrf_rs-2025-04-15-09-14-38_dut_baseline_switched", td_exp_num=4536,
-    #                save="dut_baseline_esd_y1_switched",
-    #                **kwargs, **fom_kwargs)
-    # postprocessing("zingrf_rs-2025-04-15-09-14-38_dut_baseline_switched",
-    #                save="dut_baseline_esd_y2_switched",
-    #                td_exp_num=4535, **kwargs, **fom_kwargs)
-
-    # DUT + RMLv5, original
-    # postprocessing("zingrf_rs-2025-04-10-10-56-06_dut_rmlv5", **kwargs, **fom_kwargs)
-    # Synth
-    postprocessing("zingrf_rs-2025-04-10-10-56-06_dut_rmlv5",
-                   save="dut_rmlv5_synth_y1",
-                   filename_test="zingrf_rs-2025-04-10-12-19-10_dut_rmlv5_y1", **kwargs, **fom_kwargs)
-    postprocessing("zingrf_rs-2025-04-10-10-56-06_dut_rmlv5",
-                   save="dut_rmlv5_synth_y2",
-                   filename_test="zingrf_rs-2025-04-10-12-20-32_dut_rmlv5_y2", **kwargs, **fom_kwargs)
-    # ESD
-    postprocessing("zingrf_rs-2025-04-10-10-56-06_dut_rmlv5",
-                   save="dut_rmlv5_esd_y1",
-                   td_exp_num=4531, **kwargs, **fom_kwargs)
-    postprocessing("zingrf_rs-2025-04-10-10-56-06_dut_rmlv5",
-                   save="dut_rmlv5_esd_y2",
-                   td_exp_num=4532, **kwargs, **fom_kwargs)
-    plt.show(block=True)
 
     # No DUT
     for kwargs, name in zip(
@@ -922,7 +772,6 @@ def postprocessing_fourth_campaign():
             ("high", "low5", "low2", )
     ):
         # Baseline
-        # postprocessing("zingrf_rs-2025-04-09-17-01-42_baseline", **kwargs, **fom_kwargs)
         postprocessing("zingrf_rs-2025-04-09-17-01-42_baseline", td_exp_num=4527, **kwargs, x0=25, y0=25,
                        save=f"baseline_esd_{name}_25_25",
                        **fom_kwargs)  # 25 25 mm, 2 kV
@@ -934,7 +783,6 @@ def postprocessing_fourth_campaign():
                        **fom_kwargs)  # 75 75 mm, 2 kV
 
         # RMLv5
-        # postprocessing("zingrf_rs-2025-04-09-10-08-29_rmlv5", **kwargs, **fom_kwargs)
         postprocessing("zingrf_rs-2025-04-09-10-08-29_rmlv5", td_exp_num=4524, x0=50, y0=50, **kwargs,
                        save=f"rmlv5_esd_{name}_50_50",
                        **fom_kwargs)  # 2 kV, 50 50 mm, shielded
@@ -946,7 +794,6 @@ def postprocessing_fourth_campaign():
                        **fom_kwargs)  # as before, 75 75 mm
 
         # RMLv3
-        # postprocessing("zingrf_rs-2025-04-16-15-57-02_rmlv3", **kwargs, **fom_kwargs)
         postprocessing("zingrf_rs-2025-04-16-15-57-02_rmlv3", td_exp_num=4544, x0=25, y0=25,
                        save=f"rmlv3_esd_{name}_25_25",
                        **kwargs, **fom_kwargs)  # 25 25
