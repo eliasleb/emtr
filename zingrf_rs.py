@@ -511,8 +511,8 @@ def plot_resolution(f, xs, ys, s11, s11_dut, s12, s21, s22, s22_dut, f1, f2, sin
 
     def on_key_press(event):
         nonlocal f1, f2, x0, y0
-        do_optimization = False
         df = (f2 - f1) / 2
+        f0 = (f1 + f2) / 2
         df_smol = df / 10
         if event.key == "right":
             if f2 + df < np.max(f):
@@ -527,14 +527,26 @@ def plot_resolution(f, xs, ys, s11, s11_dut, s12, s21, s22, s22_dut, f1, f2, sin
             if f1 - df_smol > np.min(f):
                 f1, f2 = f1 - df_smol / 2, f2 - df_smol / 2
         elif event.key == "up":
-            df /= 4
-            f1 = f1 + df
-            f2 = f2 - df
-        elif event.key == "down":
-            df /= 2
-            f1 = f1 - df
-            f2 = f2 + df
+            df /= 1.1
+            f1 = f0 - df
+            f2 = f0 + df
             f1, f2 = max(f1, np.min(f)), min(f2, np.max(f))
+        elif event.key == "down":
+            df *= 1.1
+            f1 = f0 - df
+            f2 = f0 + df
+            f1, f2 = max(f1, np.min(f)), min(f2, np.max(f))
+        elif event.key == "shift+up":
+            df /= 1.01
+            f1 = f0 - df
+            f2 = f0 + df
+            f1, f2 = max(f1, np.min(f)), min(f2, np.max(f))
+        elif event.key == "shift+down":
+            df *= 1.01
+            f1 = f0 - df
+            f2 = f0 + df
+            f1, f2 = max(f1, np.min(f)), min(f2, np.max(f))
+
         elif event.key == "super+right":
             x0 += dx
             x0 = min(x0, np.max(xs))
@@ -575,10 +587,7 @@ def get_fom(f,
             tr_music=False, xs=None, ys=None, animation_title=None, animation_length_ns=10):
     """s_ij.shape: (x, y, rx, f)"""
 
-    if b_field:
-        s12, s21 = get_b_field(f, s12), get_b_field(f, s21)
-    else:
-        s12, s21 = s12[None, ...], s21[None, ...]
+    s12, s21 = s12[None, ...], s21[None, ...]
 
     if calibrate:
         calibration = np.sum(np.abs(s12 * excitation_signal) ** 2, axis=(0, 3, 4)) ** .5
@@ -623,7 +632,7 @@ def get_fom(f,
         ind_max = np.argmax(np.max(np.abs(tr_td), axis=(0, 1, 2)), axis=-1)
         logger.info(f"{t[ind_max]=}")
         if animation_title is not None:
-            fig, ax = plt.subplots()
+            fig, ax = plt.subplots(figsize=(4.7, 4))
             cax = None
             levels = np.linspace(-1, 1, 51)
             n_indices = int(animation_length_ns * 1e-9 / dt)
@@ -690,11 +699,19 @@ def postprocessing_fourth_campaign():
     )
     kwargs = dict(
         excite_gaussian=True,
-        f1=.35e9,
-        f2=1.8e9,
+        f1=.77e9,
+        f2=.9e9,
     )
 
+    # RMLv5 validation
+    postprocessing("zingrf_rs-2025-04-09-10-08-29_rmlv5",
+                   x0=50, y0=50,
+                   save="rmlv5_validation",
+                   **kwargs, **fom_kwargs,)
+
     # In general: ESD = 2 kV, shielded
+    kwargs["f1"] = .35e9
+    kwargs["f2"] = 1.8e9
 
     # Animation
     fom_kwargs["time_domain"] = True
@@ -818,7 +835,9 @@ if __name__ == "__main__":
     else:
         matplotlib.use("MacOSX")
 
-    plt.rcParams["font.family"] = "Arial"
+    plt.rcParams["font.family"] = "Times New Roman"
 
     plt.style.use("ggplot")
+    plt.rcParams['pdf.fonttype'] = 42
+
     main()
