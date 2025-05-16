@@ -596,28 +596,6 @@ def get_fom(f,
 
     trm_measurement = s21[:, ind_x, ind_y, :, ...][:, None, None, ...] * excitation_signal
 
-    ratio = None
-    if s11_dut is not None:
-        power_at_trm = np.sum(
-            np.abs(excitation_signal) ** 2 * (1 - np.abs(s11_dut)**2) * np.abs(s21[0, ...])**2
-            * (1 - np.abs(s22_dut)**2),
-            axis=(-1, -2)
-        )
-        power_at_probe = np.sum(
-            np.abs(excitation_signal) ** 2 * (1 - np.abs(s11)**2) * np.abs(s12[0, ...])**2
-            * (1 - np.abs(s22)**2),
-            axis=(-1, -2)
-        )
-        ratio = 100 * power_at_probe / power_at_trm
-
-    # plt.contourf(np.log10(np.sum(np.abs(s11)**2, axis=(2, 3))**.5).T, cmap="jet")
-    # plt.colorbar()
-    # plt.show()
-    # calibration = np.sum(np.abs(
-    #     (1 - s11) * (1 - s22)
-    # ), axis=(2, 3))
-    # calibration = np.ones((15, 15))
-
     tr = np.sum(
         s12 * np.conj(trm_measurement),
         axis=3
@@ -666,7 +644,7 @@ def get_fom(f,
             plt.close(fig)
 
         ind_max = np.argmax(np.max(np.abs(tr_td), axis=(0, 1, 2)))
-        fom = np.sum(tr_td[..., ind_max]**2, axis=0) ** .5  # / calibration
+        fom = np.sum(tr_td[..., ind_max]**2, axis=0) ** .5
     else:
         if calibrate:
             fom = np.sum(np.abs(tr) ** 2, axis=(0, -1)) ** .5 / calibration
@@ -677,8 +655,8 @@ def get_fom(f,
         fom -= np.min(fom)
 
     if normalize:
-        return fom / np.max(fom), ratio
-    return fom, ratio
+        return fom / np.max(fom), None
+    return fom, None
 
 
 def get_metrics(fom, x0, y0, xs, ys):
@@ -692,8 +670,8 @@ def postprocessing_fourth_campaign():
     fom_kwargs = dict(
         calibrate=True,
         min_normalization=False,
-        block_plot=False,
-        auto_close=True,
+        block_plot=True,
+        auto_close=False,
         time_domain=False,
         animation_length_ns=1
     )
@@ -704,6 +682,10 @@ def postprocessing_fourth_campaign():
     )
 
     # RMLv5 validation
+    postprocessing("zingrf_rs-2025-04-09-17-01-42_baseline",
+                   x0=50, y0=50,
+                   save="baseline_validation",
+                   **kwargs, **fom_kwargs,)
     postprocessing("zingrf_rs-2025-04-09-10-08-29_rmlv5",
                    x0=50, y0=50,
                    save="rmlv5_validation",
@@ -718,6 +700,10 @@ def postprocessing_fourth_campaign():
     fom_kwargs["animation_title"] = "dut_rmlv5_bundled_esd_y1_for_td"
     postprocessing("zingrf_rs-2025-04-15-14-44-55_dut_rmlv5",
                    td_exp_num=4542,
+                   **kwargs, **fom_kwargs)
+    fom_kwargs["animation_title"] = "dut_rmlv5_bundled_esd_y2_for_td"
+    postprocessing("zingrf_rs-2025-04-15-14-44-55_dut_rmlv5",
+                   td_exp_num=4541,
                    **kwargs, **fom_kwargs)
     fom_kwargs["time_domain"] = False
 
