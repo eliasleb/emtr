@@ -4,7 +4,7 @@ import pickle
 from matplotlib.backend_bases import MouseButton
 from helpers import read_local_data, search_for_filenames
 import itertools
-from scipy.interpolate import RegularGridInterpolator, interp1d
+from scipy.interpolate import RegularGridInterpolator
 from emtr_fd import esd_waveform
 import random
 from joblib import Parallel, delayed
@@ -221,9 +221,9 @@ def read_data_from_td(exp_number, example_plot=False):
     return data.freq, data.fft
 
 
-def postprocessing(filename, filename_test=None, with_singularities=False, threshold=12, simulate_less=None,
-                   learn_s11=None, td_exp_num=None, delay=0., active_trace=1, f1=None, f2=None,
-                   x0=None, y0=None, save=None, ml=False, plot_ga_history=True, do_montena_plots=False,
+def postprocessing(filename, filename_test=None,
+                   learn_s11=None, td_exp_num=None, active_trace=1, f1=None, f2=None,
+                   x0=None, y0=None, save=None, ml=False, do_montena_plots=False,
                    excite_gaussian=True, **fom_kwargs):
     """s_ij.shape: (x, y, rx, f)"""
 
@@ -305,6 +305,8 @@ def postprocessing(filename, filename_test=None, with_singularities=False, thres
 
     f1 = f1 if f1 is not None else np.min(f)
     f2 = f2 if f2 is not None else np.max(f)
+    logger.info(f"Freq from {f.min()/1e6:.3f} MHz to {f.max()/1e6:.3f} MHz in {f.size} points.")
+    logger.info(f"Case '{save}': f0 = {(f1 + f2) / 2e6:.3f} MHz, delta-f = {(f2 - f1) / 1e6:.3f} MHz")
 
     if ml == "brute_force":
         kwargs = dict(
@@ -339,7 +341,6 @@ def postprocessing(filename, filename_test=None, with_singularities=False, thres
                     x0=x0, y0=y0,
                     plot_filename=f"{filename}_test_{filename_test}_exp_number_{td_exp_num}" if save is None else save,
                     **fom_kwargs)
-    # plt.show(block=True)
     return s11
 
 
@@ -352,8 +353,7 @@ def montena_plots(f, s12):
     plt.show(block=True)
 
 
-def plot_resolution(f, xs, ys, s11, s11_dut, s12, s21, s22, s22_dut, f1, f2, singularities=None, true_delays=None,
-                    f_corrupt=None,
+def plot_resolution(f, xs, ys, s11, s11_dut, s12, s21, s22, s22_dut, f1, f2,
                     experimental_mismatch=False, learn_s11=None, excite_gaussian=True, _esd_waveform_fd=None,
                     plot_filename=None, x0=None, y0=None, manual_max=1., block_plot=False, auto_close=False,
                     **fom_kwargs):
@@ -559,11 +559,9 @@ def plot_resolution(f, xs, ys, s11, s11_dut, s12, s21, s22, s22_dut, f1, f2, sin
         elif event.key == "super+down":
             y0 -= dy
             y0 = max(y0, np.min(xs))
-        elif event.key == "o":
-            do_optimization = True
         elif event.key == "p":
-            for extension in ("png", "pdf"):
-                plt.savefig(f"figs/fom_{plot_filename}.{extension}")
+            for file_extension in ("png", "pdf"):
+                plt.savefig(f"figs/fom_{plot_filename}.{file_extension}")
         elif event.key == "1":
             res = input("f1 (MHz): ")
             f1 = int(res) * 1e6
@@ -581,10 +579,10 @@ def plot_resolution(f, xs, ys, s11, s11_dut, s12, s21, s22, s22_dut, f1, f2, sin
 
 
 def get_fom(f,
-            s11, s11_dut, s12, s21, s22, s22_dut,
+            _s11, _s11_dut, s12, s21, _s22, _s22_dut,
             ind_x, ind_y, _f1, _f2, time_domain=False, normalize=True, _experimental_mismatch=False, _ind_t=None,
-            _learn_s11=None, excitation_signal=None, b_field=False, calibrate=False, min_normalization=False,
-            tr_music=False, xs=None, ys=None, animation_title=None, animation_length_ns=10):
+            _learn_s11=None, excitation_signal=None, calibrate=False, min_normalization=False,
+            xs=None, ys=None, animation_title=None, animation_length_ns=10):
     """s_ij.shape: (x, y, rx, f)"""
 
     s12, s21 = s12[None, ...], s21[None, ...]
